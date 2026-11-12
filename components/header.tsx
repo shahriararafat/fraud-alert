@@ -20,6 +20,19 @@ export function Header({
           <Shield />
           {copy.brand}
         </Link>
+        <nav className="flex flex-wrap items-center gap-4 text-sm font-medium">
+          <Link
+            href={email ? '/report' : '/login?next=/report'}
+            className="hover:text-pine"
+          >
+            {copy.nav.report}
+          </Link>
+          {email ? (
+            <Link href="/reports" className="hover:text-pine">
+              {copy.nav.myReports}
+            </Link>
+          ) : null}
+        </nav>
         <div className="ml-auto flex flex-wrap items-center gap-3">
           <LanguageToggle
             lang={lang}
