@@ -54,16 +54,26 @@ begin
     raise exception 'upsert did not return an entity';
   end if;
 
-  insert into public.reports (reporter_id, description, amount_lost)
-  values (user_a, 'Sent bKash money for a phone that never arrived', 2500)
+  insert into public.reports (reporter_id, description, amount_lost, occurred_on)
+  values (
+    user_a,
+    'Sent bKash money for a phone that never arrived',
+    2500,
+    (timezone('Asia/Dhaka', now()))::date
+  )
   returning id into report_a;
 
   insert into public.report_entities (report_id, entity_id)
   values (report_a, found_entity);
 
   begin
-    insert into public.reports (reporter_id, description, status)
-    values (user_a, 'Trying to approve my own report', 'approved');
+    insert into public.reports (reporter_id, description, status, occurred_on)
+    values (
+      user_a,
+      'Trying to approve my own report',
+      'approved',
+      (timezone('Asia/Dhaka', now()))::date
+    );
     raise exception 'a user inserted an approved report';
   exception
     when insufficient_privilege or check_violation then
@@ -146,8 +156,8 @@ begin
     raise exception 'signed-in user could not read an approved report';
   end if;
 
-  insert into public.reports (reporter_id, description)
-  values (user_b, 'A second pending report')
+  insert into public.reports (reporter_id, description, occurred_on)
+  values (user_b, 'A second pending report', (timezone('Asia/Dhaka', now()))::date)
   returning id into report_b;
 
   select count(*) into seen from public.reports where id = report_b;
@@ -234,6 +244,178 @@ begin
         raise;
       end if;
   end;
+end $$;
+
+-- A second person cannot read a pending report or its screenshot.
+do $$
+declare
+  user_a uuid := '11111111-1111-4111-8111-111111111111';
+  user_c uuid := '33333333-3333-4333-8333-333333333333';
+  submitted uuid;
+  seen int;
+  limited boolean := false;
+  today date := (timezone('Asia/Dhaka', now()))::date;
+begin
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  insert into auth.users (
+    instance_id, id, aud, role, email,
+    raw_app_meta_data, raw_user_meta_data,
+    created_at, updated_at
+  ) values (
+    '00000000-0000-0000-0000-000000000000',
+    user_c,
+    'authenticated', 'authenticated', 'c@example.com',
+    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+    now(), now()
+  );
+
+  if not exists (select 1 from public.profiles where id = user_c) then
+    raise exception 'signing up did not create a profile';
+  end if;
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_c, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+
+  begin
+    insert into public.reports (reporter_id, description, occurred_on)
+    values (user_c, 'This date has not happened yet', today + 1);
+    raise exception 'a future date was accepted';
+  exception
+    when check_violation then
+      null;
+  end;
+
+  begin
+    perform public.submit_report(
+      'no identifiers here at all',
+      null,
+      today,
+      '[]'::jsonb,
+      array[user_c::text || '/missing.png']
+    );
+    raise exception 'a report with no identifier was accepted';
+  exception
+    when others then
+      if sqlerrm not like '%identifier required%' then
+        raise;
+      end if;
+  end;
+
+  submitted := public.submit_report(
+    'Paid bKash for a phone and the shop disappeared overnight',
+    3200,
+    today,
+    jsonb_build_array(
+      jsonb_build_object('kind', 'phone', 'value', '01611111111'),
+      jsonb_build_object('kind', 'shop_name', 'value', 'Ghost Mobile')
+    ),
+    array[user_c::text || '/receipt.jpg']
+  );
+  if submitted is null then
+    raise exception 'submit_report returned nothing';
+  end if;
+  if (select status from public.reports where id = submitted) is distinct from 'pending' then
+    raise exception 'submitted report was not pending';
+  end if;
+  if (select count(*) from public.report_entities where report_id = submitted) <> 2 then
+    raise exception 'submit_report did not link both entities';
+  end if;
+  if public.upsert_entity('phone', '01611111111') is null then
+    raise exception 'phone entity missing after submit';
+  end if;
+
+  insert into storage.objects (bucket_id, name)
+  values ('evidence', user_c::text || '/receipt.jpg');
+
+  if (select count(*) from public.evidence_files where report_id = submitted) <> 1 then
+    raise exception 'reporter could not see their evidence row';
+  end if;
+  if (
+    select count(*) from storage.objects
+    where bucket_id = 'evidence' and name = user_c::text || '/receipt.jpg'
+  ) <> 1 then
+    raise exception 'reporter could not see their evidence file';
+  end if;
+  if (select admin_notes from public.my_reports() where id = submitted) is not null then
+    raise exception 'a new report should not have an admin note';
+  end if;
+
+  for i in 1..6 loop
+    begin
+      insert into public.reports (reporter_id, description, occurred_on)
+      values (user_c, 'Extra report number ' || i, today);
+    exception
+      when others then
+        if sqlerrm not like '%report limit reached%' then
+          raise;
+        end if;
+        limited := true;
+        exit;
+    end;
+  end loop;
+  if not limited then
+    raise exception 'the daily report limit was not enforced';
+  end if;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  if (select count(*) from public.reports where reporter_id = user_c) <> 5 then
+    raise exception 'expected 5 reports for the day, got %',
+      (select count(*) from public.reports where reporter_id = user_c);
+  end if;
+
+  update public.reports
+  set admin_notes = 'please send the chat'
+  where id = submitted;
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_c, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  if (select admin_notes from public.my_reports() where id = submitted) is distinct from 'please send the chat' then
+    raise exception 'reporter could not read the note through my_reports';
+  end if;
+  if exists (select 1 from public.my_reports() where description like 'Sent bKash%') then
+    raise exception 'my_reports leaked another person''s report';
+  end if;
+  execute 'reset role';
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_a, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  select count(*) into seen from public.reports where id = submitted;
+  if seen <> 0 then
+    raise exception 'another user saw a pending report';
+  end if;
+  select count(*) into seen
+  from public.evidence_files
+  where storage_path = user_c::text || '/receipt.jpg';
+  if seen <> 0 then
+    raise exception 'another user saw the evidence row';
+  end if;
+  select count(*) into seen
+  from storage.objects
+  where bucket_id = 'evidence' and name = user_c::text || '/receipt.jpg';
+  if seen <> 0 then
+    raise exception 'another user saw the evidence file';
+  end if;
+  if exists (select 1 from public.my_reports() where id = submitted) then
+    raise exception 'my_reports showed another person''s report';
+  end if;
+  if exists (select 1 from public.my_reports() where admin_notes = 'please send the chat') then
+    raise exception 'another user read the admin note';
+  end if;
 end $$;
 
 rollback;

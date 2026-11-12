@@ -31,6 +31,60 @@ export type Messages = {
     errorGoogle: string
     errorLink: string
   }
+  nav: { report: string; myReports: string }
+  report: {
+    title: string
+    lede: string
+    identifierHint: string
+    phonesLabel: string
+    phonesHint: string
+    shopLabel: string
+    shopHint: string
+    websiteLabel: string
+    websiteHint: string
+    socialLabel: string
+    socialHint: string
+    descriptionLabel: string
+    descriptionHint: string
+    amountLabel: string
+    amountHint: string
+    dateLabel: string
+    dateHint: string
+    evidenceLabel: string
+    evidenceHint: string
+    submit: string
+    errors: Record<
+      | 'identifier'
+      | 'phone'
+      | 'shop'
+      | 'website'
+      | 'social'
+      | 'description'
+      | 'amount'
+      | 'date'
+      | 'file_type'
+      | 'file_size'
+      | 'file_count'
+      | 'file_required'
+      | 'rate'
+      | 'save',
+      string
+    >
+  }
+  myReports: {
+    title: string
+    lede: string
+    empty: string
+    emptyLink: string
+    submitted: string
+    loadError: string
+    happened: string
+    filed: string
+    lost: string
+    notes: string
+    status: { pending: string; approved: string; rejected: string; needs_info: string }
+    kinds: { phone: string; shop_name: string; url: string; social: string }
+  }
 }
 
 const en: Messages = {
@@ -82,6 +136,64 @@ const en: Messages = {
       'Google sign-in is not available yet. Add the Google client id and secret, or use email.',
     errorLink: 'That sign-in link is invalid or expired.',
   },
+  nav: { report: 'Report a scam', myReports: 'My reports' },
+  report: {
+    title: 'Report a scam',
+    lede: 'Add the number, shop, or link. Only you can see this until an admin approves it.',
+    identifierHint: 'At least one of these is required: phone, shop, website, or social link.',
+    phonesLabel: 'Scammer phone numbers',
+    phonesHint: 'One per line. 017…, +88017…, and ০১৭… all work.',
+    shopLabel: 'Shop or page name',
+    shopHint: 'The name you saw on the page or shop.',
+    websiteLabel: 'Website',
+    websiteHint: 'For example, https://example.com',
+    socialLabel: 'Social links',
+    socialHint: 'One link per line.',
+    descriptionLabel: 'What happened',
+    descriptionHint: 'How the money was taken. At least a sentence or two.',
+    amountLabel: 'Amount lost (BDT)',
+    amountHint: 'Optional.',
+    dateLabel: 'Date',
+    dateHint: 'The day you paid, or the day you noticed.',
+    evidenceLabel: 'Screenshots',
+    evidenceHint: 'Payment, chat, or email. JPEG, PNG, or WebP. Up to 3 files, 5 MB each.',
+    submit: 'Submit report',
+    errors: {
+      identifier: 'Add at least one phone number, shop name, website, or social link.',
+      phone: 'Enter a valid Bangladeshi mobile number.',
+      shop: 'A shop name needs 2 to 120 characters.',
+      website: 'Enter a valid website address.',
+      social: 'Enter a valid social link.',
+      description: 'Describe what happened in at least 20 characters.',
+      amount: 'Amount must be zero or more, in taka.',
+      date: 'Choose a date that is today or earlier.',
+      file_type: 'Only JPEG, PNG, and WebP images are accepted.',
+      file_size: 'Each image must be 5 MB or smaller.',
+      file_count: 'You can attach up to 3 images.',
+      file_required: 'Attach at least one screenshot.',
+      rate: 'You have already submitted 5 reports today. Try again tomorrow.',
+      save: 'The report could not be saved. Please try again.',
+    },
+  },
+  myReports: {
+    title: 'My reports',
+    lede: 'Reports you filed, and any note from the admin.',
+    empty: 'You have not filed a report yet.',
+    emptyLink: 'Report a scam',
+    submitted: 'Report submitted. An admin will review it.',
+    loadError: 'Your reports could not be loaded.',
+    happened: 'Happened',
+    filed: 'Filed',
+    lost: 'Lost',
+    notes: 'Admin note',
+    status: {
+      pending: 'Pending',
+      approved: 'Approved',
+      rejected: 'Rejected',
+      needs_info: 'Needs info',
+    },
+    kinds: { phone: 'Phone', shop_name: 'Shop', url: 'Website', social: 'Social' },
+  },
 }
 
 const bn: Messages = {
@@ -131,6 +243,64 @@ const bn: Messages = {
     errorGoogle:
       'Google দিয়ে প্রবেশ এখনো প্রস্তুত নয়। ক্লায়েন্ট আইডি ও সিক্রেট যোগ করুন, অথবা ইমেইল ব্যবহার করুন।',
     errorLink: 'এই লিংকটি সঠিক নয়, অথবা এর মেয়াদ শেষ।',
+  },
+  nav: { report: 'প্রতারণার রিপোর্ট', myReports: 'আমার রিপোর্ট' },
+  report: {
+    title: 'প্রতারণার খবর দিন',
+    lede: 'নম্বর, দোকান, বা লিংক লিখুন। অ্যাডমিন অনুমোদন না করা পর্যন্ত এটি শুধু আপনি দেখতে পাবেন।',
+    identifierHint: 'ফোন, দোকান, ওয়েবসাইট, বা সামাজিক লিংকের অন্তত একটি লাগবে।',
+    phonesLabel: 'প্রতারকের ফোন নম্বর',
+    phonesHint: 'এক লাইনে একটি। 017…, +88017…, বা ০১৭… লেখা যাবে।',
+    shopLabel: 'দোকান বা পেজের নাম',
+    shopHint: 'পেজ বা দোকানে যে নাম দেখেছেন।',
+    websiteLabel: 'ওয়েবসাইট',
+    websiteHint: 'যেমন https://example.com',
+    socialLabel: 'সামাজিক মাধ্যমের লিংক',
+    socialHint: 'এক লাইনে একটি লিংক।',
+    descriptionLabel: 'কী হয়েছিল',
+    descriptionHint: 'টাকা কীভাবে গেছে, অন্তত এক-দুই বাক্যে লিখুন।',
+    amountLabel: 'ক্ষতির পরিমাণ (টাকা)',
+    amountHint: 'না দিলেও চলবে।',
+    dateLabel: 'তারিখ',
+    dateHint: 'যেদিন টাকা পাঠিয়েছেন, বা যেদিন বুঝতে পেরেছেন।',
+    evidenceLabel: 'স্ক্রিনশট',
+    evidenceHint: 'পেমেন্ট, চ্যাট, বা ইমেইল। JPEG, PNG, বা WebP। সর্বোচ্চ ৩টি, প্রতিটি ৫ মেগাবাইট।',
+    submit: 'রিপোর্ট জমা দিন',
+    errors: {
+      identifier: 'অন্তত একটি ফোন নম্বর, দোকানের নাম, ওয়েবসাইট, বা সামাজিক লিংক দিন।',
+      phone: 'বাংলাদেশের একটি সঠিক মোবাইল নম্বর লিখুন।',
+      shop: 'দোকানের নাম ২ থেকে ১২০ অক্ষরের মধ্যে লিখুন।',
+      website: 'সঠিক ওয়েবসাইটের ঠিকানা লিখুন।',
+      social: 'সঠিক সামাজিক লিংক লিখুন।',
+      description: 'কী হয়েছিল, অন্তত ২০ অক্ষরে লিখুন।',
+      amount: 'পরিমাণ ০ বা তার বেশি একটি সংখ্যা হতে হবে।',
+      date: 'আজকের দিন বা তার আগের একটি তারিখ বেছে নিন।',
+      file_type: 'শুধু JPEG, PNG, বা WebP ছবি দেওয়া যাবে।',
+      file_size: 'প্রতিটি ছবি ৫ মেগাবাইট বা তার কম হতে হবে।',
+      file_count: 'সর্বোচ্চ ৩টি ছবি দেওয়া যাবে।',
+      file_required: 'অন্তত একটি স্ক্রিনশট দিন।',
+      rate: 'আজ ৫টি রিপোর্ট জমা হয়েছে। আগামীকাল আবার চেষ্টা করুন।',
+      save: 'রিপোর্ট সেভ করা যায়নি। আবার চেষ্টা করুন।',
+    },
+  },
+  myReports: {
+    title: 'আমার রিপোর্ট',
+    lede: 'আপনার জমা দেওয়া রিপোর্ট, আর অ্যাডমিনের নোট থাকলে সেটি।',
+    empty: 'আপনি এখনো কোনো রিপোর্ট দেননি।',
+    emptyLink: 'প্রতারণার খবর দিন',
+    submitted: 'রিপোর্ট জমা হয়েছে। অ্যাডমিন যাচাই করবেন।',
+    loadError: 'রিপোর্টগুলো এখন লোড করা যায়নি।',
+    happened: 'ঘটনার তারিখ',
+    filed: 'জমা',
+    lost: 'ক্ষতি',
+    notes: 'অ্যাডমিনের নোট',
+    status: {
+      pending: 'অপেক্ষমাণ',
+      approved: 'অনুমোদিত',
+      rejected: 'বাতিল',
+      needs_info: 'আরও তথ্য দরকার',
+    },
+    kinds: { phone: 'ফোন', shop_name: 'দোকান', url: 'ওয়েবসাইট', social: 'সামাজিক' },
   },
 }
 

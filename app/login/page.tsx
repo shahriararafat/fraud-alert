@@ -3,16 +3,17 @@ import { sendMagicLink, signInWithGoogle } from '@/app/actions'
 import { currentUserEmail } from '@/lib/auth'
 import { getLanguage } from '@/lib/language'
 import { messages } from '@/lib/messages'
+import { safeNextPath } from '@/lib/origin'
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sent?: string; error?: string }>
+  searchParams: Promise<{ sent?: string; error?: string; next?: string }>
 }) {
-  const email = await currentUserEmail()
-  if (email) redirect('/')
-
   const params = await searchParams
+  const next = safeNextPath(params.next)
+  const email = await currentUserEmail()
+  if (email) redirect(next)
   const copy = messages[await getLanguage()].login
   const error =
     params.error === 'email'
@@ -42,6 +43,7 @@ export default async function LoginPage({
       ) : null}
 
       <form action={signInWithGoogle} className="mt-8">
+        <input type="hidden" name="next" value={next} />
         <button
           type="submit"
           className="h-12 w-full rounded-xl border border-line bg-card text-base font-medium hover:bg-paper"
@@ -53,6 +55,7 @@ export default async function LoginPage({
       <p className="my-4 text-center text-sm text-muted">{copy.or}</p>
 
       <form action={sendMagicLink} className="flex flex-col gap-3">
+        <input type="hidden" name="next" value={next} />
         <label htmlFor="email" className="text-sm font-medium">
           {copy.emailLabel}
         </label>
