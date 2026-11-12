@@ -8,10 +8,12 @@ export function Header({
   copy,
   lang,
   email,
+  isAdmin,
 }: {
   copy: Messages
   lang: Language
   email: string | null
+  isAdmin: boolean
 }) {
   return (
     <header className="border-b border-line bg-card">
@@ -30,6 +32,11 @@ export function Header({
           {email ? (
             <Link href="/reports" className="hover:text-pine">
               {copy.nav.myReports}
+            </Link>
+          ) : null}
+          {isAdmin ? (
+            <Link href="/admin" className="hover:text-pine">
+              {copy.nav.admin}
             </Link>
           ) : null}
         </nav>

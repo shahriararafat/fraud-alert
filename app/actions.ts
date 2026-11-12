@@ -1,7 +1,7 @@
 'use server'
 
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
+import { forbidden, redirect } from 'next/navigation'
 import {
   imageContentType,
   imageKind,
@@ -9,6 +9,7 @@ import {
   parseReport,
   REPORTS_PER_DAY,
 } from '@/lib/report'
+import { currentProfile } from '@/lib/auth'
 import { AUTH_NEXT_COOKIE, appOrigin, safeNextPath } from '@/lib/origin'
 import { createClient } from '@/lib/supabase/server'
 
@@ -127,6 +128,44 @@ export async function submitReport(formData: FormData) {
   redirect('/reports?submitted=1')
 }
 
+const REVIEW_DECISIONS = ['approve', 'reject', 'needs_info', 'unpublish'] as const
+
+export async function reviewReport(formData: FormData) {
+  const reportId = String(formData.get('report_id') ?? '')
+  const nextPath = isUuid(reportId) ? `/admin/reports/${reportId}` : '/admin'
+  const profile = await currentProfile()
+  if (!profile) redirect(`/login?next=${encodeURIComponent(nextPath)}`)
+  if (profile.role !== 'admin') forbidden()
+  if (!isUuid(reportId)) redirect('/admin?error=missing')
+
+  const decision = String(formData.get('decision') ?? '')
+  const note = String(formData.get('note') ?? '').trim()
+  if (!REVIEW_DECISIONS.includes(decision as (typeof REVIEW_DECISIONS)[number])) {
+    redirect(`${nextPath}?error=state`)
+  }
+  if (!note || note.length > 2000) redirect(`${nextPath}?error=note`)
+
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('review_report', {
+    target: reportId,
+    decision,
+    review_note: note,
+  })
+  if (error) {
+    const message = error.message.toLowerCase()
+    if (message.includes('admin only')) forbidden()
+    console.error(error.message)
+    if (message.includes('note required')) redirect(`${nextPath}?error=note`)
+    if (message.includes('not found')) redirect(`${nextPath}?error=missing`)
+    if (message.includes('not awaiting') || message.includes('not approved') || message.includes('unknown decision')) {
+      redirect(`${nextPath}?error=state`)
+    }
+    redirect(`${nextPath}?error=save`)
+  }
+
+  redirect(`${nextPath}?saved=1`)
+}
+
 async function rememberNext(next: string) {
   const store = await cookies()
   if (next === '/') {
@@ -148,6 +187,10 @@ function loginPath(kind: 'google' | 'email' | 'send' | 'sent', next: string): st
   const params = new URLSearchParams({ error: kind })
   if (next !== '/') params.set('next', next)
   return `/login?${params}`
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 }
 
 async function removeEvidence(

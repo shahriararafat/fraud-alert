@@ -2,6 +2,8 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   experimental: {
+    // forbidden() answers 403 only when this is on.
+    authInterrupts: true,
     serverActions: {
       bodySizeLimit: '20mb',
     },

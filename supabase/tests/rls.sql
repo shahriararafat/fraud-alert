@@ -418,4 +418,299 @@ begin
   end if;
 end $$;
 
+-- The review queue and review actions are admin-only.
+-- Approving a report raises the entity's approved count (severity low at 1).
+-- Unpublish sets it back to rejected, so the count returns to none.
+do $$
+declare
+  user_a uuid := '11111111-1111-4111-8111-111111111111';
+  user_b uuid := '22222222-2222-4222-8222-222222222222';
+  user_c uuid := '33333333-3333-4333-8333-333333333333';
+  pending_id uuid;
+  submitted_id uuid;
+  phone_id uuid;
+  shop_id uuid;
+  seen int;
+  queue_seen int;
+  first_at timestamptz;
+  oldest timestamptz;
+  reviewer uuid;
+  reviewed timestamptz;
+begin
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  select id into pending_id from public.reports where description = 'A second pending report';
+  select id into submitted_id
+  from public.reports
+  where description = 'Paid bKash for a phone and the shop disappeared overnight';
+  select id into phone_id from public.scam_entities where kind = 'phone' and value = '01611111111';
+  select id into shop_id from public.scam_entities where kind = 'shop_name' and value = 'Ghost Mobile';
+  if pending_id is null or submitted_id is null or phone_id is null or shop_id is null then
+    raise exception 'review fixtures were not found';
+  end if;
+
+  select count(*) into seen
+  from public.reports
+  where status in ('pending', 'needs_info');
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_c, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+
+  begin
+    perform * from public.admin_review_queue();
+    raise exception 'a user read the review queue';
+  exception
+    when others then
+      if sqlerrm not like '%admin only%' then
+        raise;
+      end if;
+  end;
+
+  begin
+    perform public.review_report(submitted_id, 'approve', 'A user must not be able to approve');
+    raise exception 'a user called review_report';
+  exception
+    when others then
+      if sqlerrm not like '%admin only%' then
+        raise;
+      end if;
+  end;
+
+  begin
+    perform * from public.admin_report_detail(submitted_id);
+    raise exception 'a user read an admin report';
+  exception
+    when others then
+      if sqlerrm not like '%admin only%' then
+        raise;
+      end if;
+  end;
+
+  if (select status from public.reports where id = submitted_id) is distinct from 'pending' then
+    raise exception 'a failed review changed the report';
+  end if;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_b, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+
+  select count(*) into queue_seen from public.admin_review_queue();
+  if queue_seen is distinct from seen then
+    raise exception 'admin queue saw % reports, table has %', queue_seen, seen;
+  end if;
+
+  select q.created_at into first_at
+  from (
+    select created_at, row_number() over () as n
+    from public.admin_review_queue()
+  ) q
+  where q.n = 1;
+  select min(r.created_at) into oldest
+  from public.reports r
+  where r.status in ('pending', 'needs_info');
+  if first_at is distinct from oldest then
+    raise exception 'queue is not oldest first';
+  end if;
+
+  begin
+    perform reviewed_by from public.reports;
+    raise exception 'admin could select reviewed_by from the table';
+  exception
+    when insufficient_privilege then
+      null;
+  end;
+
+  begin
+    perform public.review_report(pending_id, 'needs_info', '   ');
+    raise exception 'a blank note was accepted';
+  exception
+    when others then
+      if sqlerrm not like '%note required%' then
+        raise;
+      end if;
+  end;
+
+  begin
+    perform public.review_report(pending_id, 'unpublish', 'not approved yet');
+    raise exception 'unpublish worked on a report that is not approved';
+  exception
+    when others then
+      if sqlerrm not like '%report is not approved%' then
+        raise;
+      end if;
+  end;
+
+  perform public.review_report(pending_id, 'needs_info', 'Please send the bKash transaction id');
+  if (select status from public.reports where id = pending_id) is distinct from 'needs_info' then
+    raise exception 'needs_info did not stick';
+  end if;
+  if (select count(*) from public.admin_review_queue() where id = pending_id) <> 1 then
+    raise exception 'needs_info report left the queue';
+  end if;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+  select count(*) into seen from public.scam_entities where id in (phone_id, shop_id);
+  if seen <> 0 then
+    raise exception 'anon saw the entity before approval';
+  end if;
+  execute 'reset role';
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_b, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  perform public.review_report(submitted_id, 'approve', 'Screenshot matches the bKash number');
+
+  if (select status from public.reports where id = submitted_id) is distinct from 'approved' then
+    raise exception 'approve did not set status';
+  end if;
+  if (select count(*) from public.admin_review_queue() where id = submitted_id) <> 0 then
+    raise exception 'approved report stayed in the queue';
+  end if;
+  select reviewed_by, reviewed_at into reviewer, reviewed
+  from public.admin_report_detail(submitted_id);
+  if reviewer is distinct from user_b or reviewed is null then
+    raise exception 'approve did not record who reviewed it and when';
+  end if;
+  if (select other_report_count from public.admin_report_detail(submitted_id)) is distinct from 4 then
+    raise exception 'other report count should be 4';
+  end if;
+
+  select approved_report_count into seen
+  from public.entity_approved_counts
+  where entity_id = phone_id;
+  if seen is distinct from 1 then
+    raise exception 'approve should make the phone approved count 1 (severity low), got %', seen;
+  end if;
+  select approved_report_count into seen
+  from public.entity_approved_counts
+  where entity_id = shop_id;
+  if seen is distinct from 1 then
+    raise exception 'approve should make the shop approved count 1 (severity low), got %', seen;
+  end if;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+  select count(*) into seen from public.reports where id = submitted_id;
+  if seen <> 1 then
+    raise exception 'approving did not make the report public';
+  end if;
+  select count(*) into seen from public.scam_entities where id in (phone_id, shop_id);
+  if seen <> 2 then
+    raise exception 'approving did not make both entities public, saw %', seen;
+  end if;
+  execute 'reset role';
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_c, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  if (select status from public.my_reports() where id = submitted_id) is distinct from 'approved' then
+    raise exception 'reporter could not see the approved status';
+  end if;
+  if (select admin_notes from public.my_reports() where id = submitted_id)
+    is distinct from 'Screenshot matches the bKash number'
+  then
+    raise exception 'reporter could not see the approval note';
+  end if;
+  execute 'reset role';
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_b, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  perform public.review_report(submitted_id, 'unpublish', 'Wrong number, taking the listing down');
+
+  if (select status from public.reports where id = submitted_id) is distinct from 'rejected' then
+    raise exception 'unpublish should set the report back to rejected';
+  end if;
+  select reviewed_by into reviewer from public.admin_report_detail(submitted_id);
+  if reviewer is distinct from user_b then
+    raise exception 'unpublish did not keep the reviewing admin';
+  end if;
+  select count(*) into seen from public.entity_approved_counts where entity_id in (phone_id, shop_id);
+  if seen <> 0 then
+    raise exception 'unpublish should drop the approved count (severity none), saw %', seen;
+  end if;
+
+  begin
+    perform public.review_report(submitted_id, 'approve', 'cannot approve twice');
+    raise exception 'a rejected report was approved again';
+  exception
+    when others then
+      if sqlerrm not like '%not awaiting review%' then
+        raise;
+      end if;
+  end;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', '', true);
+  execute 'set local role anon';
+  select count(*) into seen from public.reports where id = submitted_id;
+  if seen <> 0 then
+    raise exception 'unpublish left the report public';
+  end if;
+  select count(*) into seen from public.scam_entities where id in (phone_id, shop_id);
+  if seen <> 0 then
+    raise exception 'unpublish left the entities public';
+  end if;
+  execute 'reset role';
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_c, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  if (select status from public.my_reports() where id = submitted_id) is distinct from 'rejected' then
+    raise exception 'reporter could not see the unpublished status';
+  end if;
+  if (select admin_notes from public.my_reports() where id = submitted_id)
+    is distinct from 'Wrong number, taking the listing down'
+  then
+    raise exception 'reporter could not see the unpublish note';
+  end if;
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_a, 'role', 'authenticated')::text,
+    true
+  );
+  if (select count(*) from storage.objects where bucket_id = 'evidence' and name = user_c::text || '/receipt.jpg') <> 0 then
+    raise exception 'another user saw the evidence file';
+  end if;
+  execute 'reset role';
+
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', user_b, 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  if (
+    select count(*) from storage.objects
+    where bucket_id = 'evidence' and name = user_c::text || '/receipt.jpg'
+  ) <> 1 then
+    raise exception 'admin could not see the evidence file';
+  end if;
+end $$;
+
 rollback;
